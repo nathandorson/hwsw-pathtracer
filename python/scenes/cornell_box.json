@@ -1,0 +1,63 @@
+[
+  {
+    "shape_type": "plane",
+    "specularity": 0, "emittance": 2,
+    "coordinates": [
+        [0,0,4], [0,0,1], [0,0,0]
+    ],
+    "color": [255,255,255]
+  },
+
+  {
+    "shape_type": "plane",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [0,0,-4], [0,0,1], [0,0,0]
+    ],
+    "color": [255,255,255]
+  },
+
+  {
+    "shape_type": "plane",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [8,0,0], [1,0,0], [0,0,0]
+    ],
+    "color": [255,255,255]
+  },
+
+  {
+    "shape_type": "plane",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [0,4,0], [0,1,0], [0,0,0]
+    ],
+    "color": [100,255,100]
+  },
+  {
+    "shape_type": "plane",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [0,-4,0], [0,1,0], [0,0,0]
+    ],
+    "color": [255,100,100]
+  },
+
+  {
+    "shape_type": "sphere",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [6,1,-3], [1,0,0], [0,0,0]
+    ],
+    "color": [255,255,255]
+  },
+
+  {
+    "shape_type": "sphere",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [5,-2.5,-2.8], [1.2,0,0], [0,0,0]
+    ],
+    "color": [255,255,180]
+  }
+]
