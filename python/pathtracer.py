@@ -433,6 +433,19 @@ class Pathtracer():
 
         return traced_color
 
+    def render_scene_on_hardware(self):
+        """
+        Render the scene using the pathtracing algorithm on hardware.
+        """
+        print("NOT IMPLEMENTED")
+        # TODO:
+        #   Inputs to hardware:
+        #     Rays to fire { coordinates:fixed32[3] , direction:fixed32[3] }
+        #     Objects in scene { type:2_bits , color:byte[3] , emittance:byte , coordinates:fixed32[3] }
+        #
+        #   Outputs from hardware:
+        #     Pixel colors { colors:byte[360][480][3] }
+
     def render_scene(self):
         """
         Render the scene using the pathtracing algorithm.
