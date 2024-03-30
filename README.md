@@ -63,6 +63,10 @@ plt.show()
 p.save_rendered_scene('test_render_result.png')
 ```
 
+## Hardware implementation
+
+As of 2024-03-29 the hardware implementation via Vitis HLS is still in progress. There is a progress update in [UPDATE.md](./UPDATE.md)
+
 ## Project structure
 
 ```
@@ -70,7 +74,12 @@ p.save_rendered_scene('test_render_result.png')
 ├── assets
 │   ├── cornell_high_def.png
 │   ├── cornell_low_def.png
-│   └── pynq_run_sample.png
+│   ├── pynq_run_sample.png
+│   └── ...
+├── hls                         # Initial attempt at HLS code
+│   └── ...
+├── hls-v2                      # Second, better attempt at HLS
+│   └── ...
 ├── python                      # Python implementation
 │   ├── pathtracer.py             # The main software implementation file
 │   ├── run.py                    # Sample script to run the pathtracer
