@@ -433,11 +433,35 @@ class Pathtracer():
 
         return traced_color
 
+    def init_hardware(self):
+        print("NOT IMPLEMENTED")
+        from pynq import Overlay
+        self.ol = Overlay("pathtracer.bit")
+
+        # ol?
+        self.ray_bram = self.ol.axi_bram_rays.mmio.array
+        self.scene_bram = self.ol.axi_bram_scene.mmio.array
+        self.pixel_bram = self.ol.axi_bram_pixels.mmio.array
+
     def render_scene_on_hardware(self):
         """
         Render the scene using the pathtracing algorithm on hardware.
         """
         print("NOT IMPLEMENTED")
+
+        for i, shape in enumerate(self.scene):
+            self.scene_bram[i] = shape # TODO worried about struct packing?
+
+        for r in range(self.rows):
+            for c in range(self.cols):
+                self.ray_bram[r * self.cols + c] = self.camera.get_random_ray(r, c)
+
+        # TODO indicate to hardware we are ready to start
+
+        # TODO wait for hardware
+
+        self.pixels = self.pixel_bram
+        self.pixels.reshape((self.rows, self.cols, 3)) # TODO might be wrong
         # TODO:
         #   Inputs to hardware:
         #     Rays to fire { coordinates:fixed32[3] , direction:fixed32[3] }
