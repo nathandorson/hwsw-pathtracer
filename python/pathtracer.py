@@ -289,6 +289,29 @@ class Shape:
             traversed_ray = t * ray.dir
             intersect_pt = ray.pos + traversed_ray
             return Intersection(intersect_pt, self, np.linalg.norm(traversed_ray))
+
+        elif self.shape_type == ShapeType.TRIANGLE:
+            edge1 = self.coordinates[1] - self.coordinates[0]
+            edge2 = self.coordinates[2] - self.coordinates[0]
+            ray_cross_edge2 = np.cross(ray.dir, edge2)
+            det = np.dot(edge1, ray_cross_edge2)
+            if abs(det) < 0.000001:
+                return None
+            inv_det = 1.0 / det
+            s = ray.pos - self.coordinates[0]
+            u = inv_det * np.dot(s, ray_cross_edge2)
+            if (u < 0) or (u > 1):
+                return None
+            s_cross_edge1 = np.cross(s, edge1)
+            v = inv_det * np.dot(ray.dir, s_cross_edge1)
+            if (v < 0) or (u + v > 1):
+                return None
+            t = inv_det * np.dot(edge2, s_cross_edge1)
+            if (t < 0.000001):
+                return None
+            traversed_ray =  t * ray.dir
+            intersect_pt = ray.pos + traversed_ray
+            return Intersection(intersect_pt, self, np.linalg.norm(traversed_ray))
         
         else:
             return None
@@ -307,6 +330,8 @@ class Shape:
             return self.coordinates[1]
         if self.shape_type == ShapeType.SPHERE:
             return normalize(point - self.coordinates[0])
+        if self.shape_type == ShapeType.TRIANGLE:
+            return np.cross(self.coordinates[1] - self.coordinates[0], self.coordinates[2] - self.coordinates[0])
         raise Exception()
 
 def load_scene_from_json(json_blob):
