@@ -4,7 +4,14 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import struct
+from collections import deque
 from typing import List, Optional
+
+NUM_PLL = 16
+RAY_FIELDS = 8
+RAYHIT_FIELDS = 4
+FIELD_WIDTH = 4
 
 
 def rot_vec_z(vec, c, s) -> np.ndarray:
@@ -102,16 +109,22 @@ def random_hemisphere_vector(normal) -> np.ndarray:
 class Ray():
     """Represents a ray in 3D space."""
 
-    def __init__(self, pos, dir) -> None:
+    def __init__(self, pos, dir, bounces=0, r=0, c=0) -> None:
         """
         Initialize a new Ray object.
 
         Parameters:
             pos: The starting position of the ray.
             dir: The direction of travel of the ray.
+            bounces: The number of bounces the ray has made.
+            r: The row of the pixel.
+            c: The column of the pixel.
         """
         self.pos: np.ndarray = pos
         self.dir: np.ndarray = dir
+        self.bounces = bounces
+        self.r = r
+        self.c = c
 
 class Camera():
     """Represents a camera in 3D space."""
@@ -161,7 +174,7 @@ class Camera():
         self.horizontal_delta = (self.top_right - self.top_left) / self.cols
         self.vert_delta = (self.bottom_left - self.top_left) / self.rows
 
-    def get_ray(self, x, y) -> Ray:
+    def get_ray_dir(self, x, y):
         """
         Get the ray originating at the camera location and pointed towards the given pixel position.
 
@@ -170,13 +183,13 @@ class Camera():
             y: The y position of the pixel.
 
         Returns:
-            Ray: The ray originating at the camera location and pointed towards the given pixel position.
+            np.ndarray: The dir of the ray originating at the camera location and pointed towards the given pixel position.
         """
         dir: np.ndarray = self.top_left + (self.horizontal_delta * x) + (self.vert_delta * y)
         norm = np.linalg.norm(dir)
         if norm != 0:
             dir = dir / norm
-        return Ray(self.pos, dir)
+        return dir
 
     def get_random_ray(self, r, c) -> Ray:
         """
@@ -189,7 +202,7 @@ class Camera():
         Returns:
             Ray: A ray originating at the camera location and pointed towards a random position within the given pixel.
         """
-        return self.get_ray(c + random.random(), r + random.random())
+        return Ray(self.pos, self.get_ray_dir(c + random.random(), r + random.random()), r=r, c=c)
 
 class Intersection():
     """Represents an intersection between a ray and a shape."""
@@ -252,6 +265,10 @@ class Shape:
         # Note that all three coordinates only used for triangles.
         # Else the first coord defines center and second defines normal.
         self.coordinates = coordinates
+
+    def tobytes(self) -> bytes:
+        # todo ensure functioning
+        return struct.pack('fffffffffc', *self.coordinates, self.shape_type)
 
     def intersection_with(self, ray) -> Optional[Intersection]:
         """
@@ -374,9 +391,12 @@ class Pathtracer():
         self.fov = 90
         self.camera: Camera = Camera([0, 0, 0], 0, 0, self.rows, self.cols, self.fov) # TODO pass this in from json, as it helps describe the scene to trace.
 
-        self.scene: List = []
+        self.scene: List[Shape] = []
 
         self.pixels = np.zeros((self.rows, self.cols, 3))
+
+        self.iters = 0
+        self.done = 0
 
     def load_from_file(self, json_file) -> None:
         """
@@ -399,6 +419,7 @@ class Pathtracer():
         Returns:
             Optional[Intersection]: The closest intersection, if it exists.
         """
+        self.iters += 1
         intersection: Optional[Intersection] = None
         closest_dist = 99999
         for shape in self.scene:
@@ -423,14 +444,11 @@ class Pathtracer():
         traced_color = np.array([255, 255, 255])
 
         for bounce_num in range(self.depth):
-            intersection = self.cast_ray(traced_ray)
+            intersection: Optional[Intersection] = self.cast_ray(traced_ray)
 
             if intersection is None:
                 return np.array([0, 0, 0])
-            
-            # TODO: For the C++ hls code we will may do tagged unions
-            #       which will also determine the "normal" method
-            #       and the methods for checking intersection.
+
             shape = intersection.shape 
 
             if (emittance := shape.emittance) > 0:
@@ -459,41 +477,113 @@ class Pathtracer():
         return traced_color
 
     def init_hardware(self):
-        print("NOT IMPLEMENTED")
         from pynq import Overlay
-        self.ol = Overlay("pathtracer.bit")
 
-        # ol?
-        self.ray_bram = self.ol.axi_bram_rays.mmio.array
-        self.scene_bram = self.ol.axi_bram_scene.mmio.array
-        self.pixel_bram = self.ol.axi_bram_pixels.mmio.array
+        self.ol = Overlay('/home/xilinx/pynq/overlays/raycast/raycast.bit')
 
-    def render_scene_on_hardware(self):
+        self.raycast_ip = self.ol.raycast_0
+        self.dma = self.ol.axi_dma
+        self.dma_send = self.dma.sendchannel
+        self.dma_recv = self.dma.recvchannel
+
+        self.scene_bram = self.ol.axi_bram_ctl_0
+
+    def send_scene_to_hardware(self):
+        for i, shape in enumerate(self.scene):
+            # 64 byte offset from one shape to the next
+            self.scene_bram.write(64 * i, shape.tobytes())
+
+    def hardware_send_recv(self, rays) -> List[Optional[Intersection]]:
+        for i, ray in enumerate(rays):
+            # TODO if using custom fixed point, convert first
+            struct.pack_into('ffffff', self.input_buffer, i * RAY_FIELDS * FIELD_WIDTH, *ray.pos, *ray.dir)
+
+        START_CONTROL_REG = 0x0
+        self.raycast_ip.write(START_CONTROL_REG, 0x1)
+        self.dma_send.send(self.input_buffer)
+        self.dma_recv.recv(self.output_buffer)
+
+        intersections = [] # TODO
+
+        # parse intersections from output rayhit buffer
+
+        return intersections
+
+    def software_send_recv(self, rays) -> List[Optional[Intersection]]:
+        intersections: List[Optional[Intersection]] = []
+        for ray in rays:
+            if ray:
+                intersections.append(self.cast_ray(ray))
+
+        return intersections
+
+    def trace_ray_group(self, ray_queue, num_pll, send_recv_fn):
+        rays_to_run = min(len(ray_queue), num_pll)
+        traced_rays = [ray_queue.popleft() for _ in range(rays_to_run)]
+
+        intersections = send_recv_fn(traced_rays)
+
+        for i, intersection in enumerate(intersections):
+            ray = traced_rays[i]
+
+            if intersection is None:
+                self.pixels[ray.r][ray.c] = np.array([0, 0, 0])
+                self.done += 1
+                continue
+
+            shape = intersection.shape 
+
+            if (emittance := shape.emittance) > 0:
+                self.pixels[ray.r][ray.c] = color_mult(self.pixels[ray.r][ray.c], emittance * shape.color)
+                self.done += 1
+                continue
+
+            if ray.bounces == self.depth - 1:
+                # Last bounce needs to hit a light, else the ray will be dark.
+                self.pixels[ray.r][ray.c] = np.array([0, 0, 0])
+                self.done += 1
+                continue
+
+            normal = shape.normal(intersection.pt)
+
+            # If normal vector and ray point in same hemisphere, flip the normal.
+            if np.dot(normal, traced_rays[i].dir) > 0.0:
+                normal = normal * -1
+
+            diffuse_dir = random_hemisphere_vector(normal)
+            self.pixels[ray.r][ray.c] = color_mult(self.pixels[ray.r][ray.c], shape.color) * np.dot(normal, diffuse_dir) # XXX: * 2
+
+            ray_queue.append(Ray(intersection.pt, diffuse_dir, ray.bounces + 1, ray.r, ray.c))
+
+    def render_scene_grouped(self, send_recv_fn):
         """
         Render the scene using the pathtracing algorithm on hardware.
         """
-        print("NOT IMPLEMENTED")
 
-        for i, shape in enumerate(self.scene):
-            self.scene_bram[i] = shape # TODO worried about struct packing?
+        rays = deque()
+        self.pixels = 255 * np.ones((self.rows, self.cols, 3))
 
+        # Set up the initial rays
         for r in range(self.rows):
             for c in range(self.cols):
-                self.ray_bram[r * self.cols + c] = self.camera.get_random_ray(r, c)
+                rays.append(self.camera.get_random_ray(r, c))
 
-        # TODO indicate to hardware we are ready to start
+        while len(rays) > 0:
+            self.trace_ray_group(rays, NUM_PLL, send_recv_fn)
+            print(f"Traced {self.iters} rays so far. {self.done} / {self.rows * self.cols} done.", end='\r')
 
-        # TODO wait for hardware
+        print("Done!", " " * 40)
 
-        self.pixels = self.pixel_bram
-        self.pixels.reshape((self.rows, self.cols, 3)) # TODO might be wrong
-        # TODO:
-        #   Inputs to hardware:
-        #     Rays to fire { coordinates:fixed32[3] , direction:fixed32[3] }
-        #     Objects in scene { type:2_bits , color:byte[3] , emittance:byte , coordinates:fixed32[3] }
-        #
-        #   Outputs from hardware:
-        #     Pixel colors { colors:byte[360][480][3] }
+    def render_scene_in_hardware(self):
+        from pynq import allocate
+
+        self.input_buffer = allocate(shape=(NUM_PLL * RAY_FIELDS * FIELD_WIDTH,), dtype=np.byte)
+        self.output_buffer = allocate(shape=(NUM_PLL * RAYHIT_FIELDS * FIELD_WIDTH,), dtype=np.byte)
+
+        return self.render_scene_grouped(self.hardware_send_recv)
+
+    def render_scene_in_software(self):
+        return self.render_scene_grouped(self.software_send_recv)
 
     def render_scene(self):
         """
