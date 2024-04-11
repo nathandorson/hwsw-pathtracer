@@ -12,7 +12,39 @@
     "shape_type": "triangle",
     "specularity": 0, "emittance": 0,
     "coordinates": [
-        [5,-2,-4], [5,0,-4], [5,0,0]
+        [5, -2, -4], [6, 0, -4], [6, 0, -2]
+    ],
+    "color": [255,255,0]
+  },
+  {
+    "shape_type": "triangle",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [5, -2, -4], [5, -2, -2], [6, 0, -2]
+    ],
+    "color": [255,255,0]
+  },
+  {
+    "shape_type": "triangle",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [7, -3, -4], [5, -2, -4], [5, -2, -2]
+    ],
+    "color": [255,0,255]
+  },
+  {
+    "shape_type": "triangle",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [7, -3, -4], [7, -3, -2], [5, -2, -2]
+    ],
+    "color": [255,0,255]
+  },
+  {
+    "shape_type": "triangle",
+    "specularity": 0, "emittance": 0,
+    "coordinates": [
+        [7, -3, -2], [5, -2, -2], [6, 0, -2]
     ],
     "color": [255,255,255]
   },
@@ -20,10 +52,13 @@
     "shape_type": "triangle",
     "specularity": 0, "emittance": 0,
     "coordinates": [
-        [5,-2,0], [5,-2,-4], [5,0,0]
+        [7, -3, -2], [8, -1, -2], [6, 0, -2]
     ],
     "color": [255,255,255]
   },
+
+
+
 
   {
     "shape_type": "plane",
@@ -31,7 +66,7 @@
     "coordinates": [
         [0,0,-4], [0,0,1], [0,0,0]
     ],
-    "color": [255,255,255]
+    "color": [200,200,200]
   },
 
   {

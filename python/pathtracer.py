@@ -6,6 +6,7 @@ import numpy as np
 import random
 import struct
 from collections import deque
+from time import time
 from typing import List, Optional
 
 NUM_PLL = 16
@@ -222,8 +223,8 @@ class Intersection():
 
 class ShapeType(IntEnum):
     """Represents the type of a shape."""
-    SPHERE = 0
-    PLANE = 1
+    PLANE = 0
+    SPHERE = 1
     TRIANGLE = 2
 
 def shape_type(shape_str: str) -> ShapeType:
@@ -268,7 +269,7 @@ class Shape:
 
     def tobytes(self) -> bytes:
         # todo ensure functioning
-        return struct.pack('fffffffffc', *self.coordinates, self.shape_type)
+        return struct.pack('fffffffffc0i', *self.coordinates[0], *self.coordinates[1], *self.coordinates[2], bytes([self.shape_type]))
 
     def intersection_with(self, ray) -> Optional[Intersection]:
         """
@@ -376,7 +377,7 @@ def load_scene_from_json(json_blob):
 class Pathtracer():
     """Represents a path tracer."""
 
-    def __init__(self, camera = None) -> None:
+    def __init__(self, rows=360, cols=480, camera = None) -> None:
         """
         Initialize a new Pathtracer object.
 
@@ -386,14 +387,18 @@ class Pathtracer():
         self.rays_per_pixel = 4
         self.depth = 4
         
-        self.rows = 360
-        self.cols = 480
+        self.rows = rows
+        self.cols = cols
         self.fov = 90
         self.camera: Camera = Camera([0, 0, 0], 0, 0, self.rows, self.cols, self.fov) # TODO pass this in from json, as it helps describe the scene to trace.
 
         self.scene: List[Shape] = []
 
+        # Can be used for accumulating / calculating pixel colors.
         self.pixels = np.zeros((self.rows, self.cols, 3))
+
+        # Must contain the final pixel colors.
+        self.final_pixels = np.zeros((self.rows, self.cols, 3))
 
         self.iters = 0
         self.done = 0
@@ -419,7 +424,6 @@ class Pathtracer():
         Returns:
             Optional[Intersection]: The closest intersection, if it exists.
         """
-        self.iters += 1
         intersection: Optional[Intersection] = None
         closest_dist = 99999
         for shape in self.scene:
@@ -445,6 +449,7 @@ class Pathtracer():
 
         for bounce_num in range(self.depth):
             intersection: Optional[Intersection] = self.cast_ray(traced_ray)
+            self.iters += 1
 
             if intersection is None:
                 return np.array([0, 0, 0])
@@ -477,7 +482,9 @@ class Pathtracer():
         return traced_color
 
     def init_hardware(self):
+        global allocate
         from pynq import Overlay
+        from pynq import allocate
 
         self.ol = Overlay('/home/xilinx/pynq/overlays/raycast/raycast.bit')
 
@@ -486,12 +493,13 @@ class Pathtracer():
         self.dma_send = self.dma.sendchannel
         self.dma_recv = self.dma.recvchannel
 
-        self.scene_bram = self.ol.axi_bram_ctl_0
+        self.scene_bram = self.ol.axi_bram_ctrl_0
 
     def send_scene_to_hardware(self):
         for i, shape in enumerate(self.scene):
             # 64 byte offset from one shape to the next
             self.scene_bram.write(64 * i, shape.tobytes())
+        print("Scene synced to hardware.")
 
     def hardware_send_recv(self, rays) -> List[Optional[Intersection]]:
         for i, ray in enumerate(rays):
@@ -500,12 +508,19 @@ class Pathtracer():
 
         START_CONTROL_REG = 0x0
         self.raycast_ip.write(START_CONTROL_REG, 0x1)
-        self.dma_send.send(self.input_buffer)
-        self.dma_recv.recv(self.output_buffer)
+        self.dma_send.transfer(self.input_buffer)
+        self.dma_recv.transfer(self.output_buffer)
 
-        intersections = [] # TODO
+        intersections = []
 
-        # parse intersections from output rayhit buffer
+        rayhit_iter = struct.iter_unpack('fffi', self.output_buffer)
+
+        for rayhit in rayhit_iter:
+            (x, y, z, scene_idx) = rayhit
+            if scene_idx == 0: # Scene hits from hardware returned one indexed so that 0 repr. no hit.
+                intersections.append(None)
+                continue
+            intersections.append(Intersection(np.array([x,y,z]), self.scene[scene_idx - 1], 0))
 
         return intersections
 
@@ -521,10 +536,12 @@ class Pathtracer():
         rays_to_run = min(len(ray_queue), num_pll)
         traced_rays = [ray_queue.popleft() for _ in range(rays_to_run)]
 
+        self.iters += rays_to_run
+
         intersections = send_recv_fn(traced_rays)
 
-        for i, intersection in enumerate(intersections):
-            ray = traced_rays[i]
+        for i, ray in enumerate(traced_rays):
+            intersection = intersections[i]
 
             if intersection is None:
                 self.pixels[ray.r][ray.c] = np.array([0, 0, 0])
@@ -559,26 +576,49 @@ class Pathtracer():
         """
         Render the scene using the pathtracing algorithm on hardware.
         """
+        self.iters = 0
+        self.done = 0
+        print(
+            f"Running the pathtracer with a bounce depth of {self.depth} "
+            f"and {self.rays_per_pixel} rays per pixel."
+        )
 
-        rays = deque()
-        self.pixels = 255 * np.ones((self.rows, self.cols, 3))
+        self.final_pixels = np.zeros((self.rows, self.cols, 3))
 
-        # Set up the initial rays
-        for r in range(self.rows):
-            for c in range(self.cols):
-                rays.append(self.camera.get_random_ray(r, c))
+        for _ in range(self.rays_per_pixel):
+            rays = deque()
+            self.pixels = 255 * np.ones((self.rows, self.cols, 3))
 
-        while len(rays) > 0:
-            self.trace_ray_group(rays, NUM_PLL, send_recv_fn)
-            print(f"Traced {self.iters} rays so far. {self.done} / {self.rows * self.cols} done.", end='\r')
+            print("\rGenerating rays to trace from the camera...", end='')
 
-        print("Done!", " " * 40)
+            # Set up the initial rays.
+            for r in range(self.rows):
+                for c in range(self.cols):
+                    rays.append(self.camera.get_random_ray(r, c))
+
+            t0 = time()
+
+            # Fire and requeue rays until we are done.
+            while len(rays) > 0:
+                self.trace_ray_group(rays, NUM_PLL, send_recv_fn)
+                print(
+                    f"\rTraced {self.iters} rays so far. {self.done // self.rays_per_pixel} / {self.rows * self.cols} pixels done. "
+                    f"{self.iters / (time() - t0):.0f} rays per second.",
+                    end=''
+                )
+
+            self.final_pixels += self.pixels
+
+        self.final_pixels = self.final_pixels / self.rays_per_pixel
+
+        print()
+        print("Done!", " " * 64)
 
     def render_scene_in_hardware(self):
-        from pynq import allocate
-
         self.input_buffer = allocate(shape=(NUM_PLL * RAY_FIELDS * FIELD_WIDTH,), dtype=np.byte)
         self.output_buffer = allocate(shape=(NUM_PLL * RAYHIT_FIELDS * FIELD_WIDTH,), dtype=np.byte)
+
+        self.send_scene_to_hardware()
 
         return self.render_scene_grouped(self.hardware_send_recv)
 
@@ -591,6 +631,8 @@ class Pathtracer():
         Logs progress to the console.
         Results in the pixels attribute being filled with the rendered image.
         """
+        self.iters = 0
+        self.done = 0
         print(
             f"Running the pathtracer with a bounce depth of {self.depth} "
             f"and {self.rays_per_pixel} rays per pixel."
@@ -602,17 +644,17 @@ class Pathtracer():
                     ray = self.camera.get_random_ray(r, c)
                     color = self.ray_color(ray)
                     pixel_color += color
-                # TODO: If accumulating in hardware, may want intermediate divides to avoid oflw.
                 pixel_color = pixel_color / self.rays_per_pixel
                 self.pixels[r][c] = pixel_color
             print(f"{(100 * (r + 1) / self.rows):.2f}% done", end='\r')
+        self.final_pixels = self.pixels.copy()
         print("Done!", " " * 20)
 
     def usable_pixel_array(self):
         """
         Get the pixel array in a format that can be saved to a file or displayed.
         """
-        return self.pixels.clip(0, 255).astype('uint8')
+        return self.final_pixels.clip(0, 255).astype('uint8')
 
     def save_rendered_scene(self, fname):
         """
