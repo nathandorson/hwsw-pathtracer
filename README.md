@@ -10,6 +10,8 @@ processing system (PS) of a Zynq7020 SoC, and then shift the actual tracing
 algorithm onto the programmable logic (PL) of the system to explore the possibility
 of speeding up the tracing via greatly increased parallelism.
 
+You can now [run the hardware/software integrated version of the project](#running-the-hardware--software-implementation).
+
 ## Software implementation
 
 The initial software implementation consists of a single python module in the
@@ -27,7 +29,7 @@ many rays as necessary to calculate the colors of all of the pixels in the rende
 
 The capabilities of the basic software pathtracer include:
 - loading scenes to render from a JSON file
-- supporting diffuse sphere and plane primitives as scene objects
+- supporting diffuse triangle, sphere, and plane primitives as scene objects
 - configurable camera settings
 - configurable number of bounces / number of rays fired per render pixel
 - outputting final renders to files on disk
@@ -65,29 +67,64 @@ p.save_rendered_scene('test_render_result.png')
 
 ## Hardware implementation
 
-As of 2024-03-29 the hardware implementation via Vitis HLS is still in progress. There is a progress update in [UPDATE.md](./UPDATE.md)
+The hardware implementation for the project is functional. The hardware IP
+is generated from the code in the `hls-v3/` directory. The
+`pathtracer.py` file contains code to integrate the hardware IP into
+the pathtracing procedure, and is useable on the PYNQ.
+
+The part of the path tracing algorithm that has been shifted on the programmable
+logic is the ray casting and intersection finding part of the algorithm. In order
+to have this improve efficiency, groups of rays are sent over all at the same time
+to the hardware block to be cast into the scene in parallel.
+
+The hardware-integrated version of the pathtracer has the same capabilities
+as the software version, except it cannot trace sphere primitives.
+
+### Running the hardware / software implementation
+
+The recommended way to test the hardware and software implementations and see
+results is to use all the resources from the `demo/` directory.
+
+Steps to run:
+1. copy the entire directory onto the PYNQ board.
+2. move the `.bit` and `.hwh` files to a new overlay directory called `raycast` on the PYNQ board.
+3. run the project_demo jupyter notebook
+4. experiment as desired - the notebook file makes pretty clear what you can adjust
+    a. you can change the render dimensions when initializing a pathtracer
+    b. you can adjust how many rays are shot per pixel
+    c. you can adjust how long rays can bounce for
+    d. you can select the input json scene to use to trace
 
 ## Project structure
 
 ```
 .
 ├── assets
-│   ├── cornell_high_def.png
-│   ├── cornell_low_def.png
-│   ├── pynq_run_sample.png
 │   └── ...
+├── demo
+│   ├── hardware_result.png
+│   ├── pathtracer.py -> ../python/pathtracer.py
+│   ├── project_demo.ipynb
+│   ├── raycast.bit
+│   ├── raycast.hwh
+│   └── scenes -> ../python/scenes
 ├── hls                         # Initial attempt at HLS code
 │   └── ...
 ├── hls-v2                      # Second, better attempt at HLS
 │   └── ...
+├── hls-v3                      # Final, working attempt at HLS
+│   └── ...
 ├── python                      # Python implementation
 │   ├── pathtracer.py             # The main software implementation file
 │   ├── run.py                    # Sample script to run the pathtracer
-│   └── scenes                    # Scenes that the pathtracer can render
-│       ├── box_simple.json         # Simple box scene
-│       ├── cornell_box.json        # Cornell box scene
-│       └── light_plane.json        # Scene with a single light source
-└── README.md
+│   ├── run_grouped_hw.py         # Sample script to run on hardware
+│   └── scenes                    # Scenes that the pathtracer can render
+│       ├── box_simple.json
+│       ├── cornell_box.json
+│       ├── cornell_box_tri.json
+│       └── light_plane.json
+├── README.md
+└── UPDATE.md
 ```
 ## Sample results
 
@@ -101,7 +138,10 @@ far longer.
 #### Rendering the same scene with a higher ray count
 ![](./assets/cornell_high_def.png)
 
-#### Running on the XILINX PYNQ setup
+#### Rendering a similar high quality scene
+![](./assets/box_cornell_high_def.png)
+
+#### Running in software on the XILINX PYNQ setup
 
 Note the running time here - over 15 minutes for the worst possible render.
 Not great! We will aim to improve that via hardware acceleration and
@@ -110,3 +150,10 @@ with lower exposure, thus the dark scene. If you run it yourself you will get a
 brighter result due to the scene having been updated since this run was performed.
 
 ![](./assets/pynq_run_sample.png)
+
+#### Running in hardware on the XILINX PYNQ setup
+
+Note the running time here - much better than the software performance, and on
+a more complex scene as well!
+
+![](./assets/pynq_run_hw_sample.png)
