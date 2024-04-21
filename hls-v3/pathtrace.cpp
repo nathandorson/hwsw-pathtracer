@@ -55,7 +55,7 @@ void intersect_ray_shape(
       if (hls::abs(det) < 0.0001) {
         return;
       }
-      inv_det = 1.0 / det;
+      inv_det = (fp_t) 1.0 / det;
       s = sub(ray->origin, shape->coords[0]);
       u = inv_det * dot(s, ray_cross_edge2);
       if (u < 0 || u > 1)
@@ -133,10 +133,8 @@ void raycast(
 #pragma HLS INTERFACE s_axilite port=return
 
   ray_t rays[NUM_PARALLEL];
-  rayhit_t rayhits[NUM_PARALLEL];
   intersect_t intersects[NUM_PARALLEL];
 #pragma HLS ARRAY_PARTITION dim=1 type=complete variable=rays
-#pragma HLS ARRAY_PARTITION dim=1 type=complete variable=rayhits
 #pragma HLS ARRAY_PARTITION dim=1 type=complete variable=intersects
 
   int i = 0;
