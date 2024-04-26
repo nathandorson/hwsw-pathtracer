@@ -68,9 +68,12 @@ p.save_rendered_scene('test_render_result.png')
 ## Hardware implementation
 
 The hardware implementation for the project is functional. The hardware IP
-is generated from the code in the `hls-v3/` directory. The
+is generated from either the code in the `hls-v3/` or the `hls-v4/` directory. The
 `pathtracer.py` file contains code to integrate the hardware IP into
 the pathtracing procedure, and is useable on the PYNQ.
+
+- The `hls-v3/` directory is a hardware design leveraging floating point calculations and 8-fold parallelism.
+- The `hls-v4/` directory is the hardware design leveragin 16 bit fixed point calculations and pipelining.
 
 The part of the path tracing algorithm that has been shifted on the programmable
 logic is the ray casting and intersection finding part of the algorithm. In order
@@ -112,7 +115,9 @@ Steps to run:
 │   └── ...
 ├── hls-v2                      # Second, better attempt at HLS
 │   └── ...
-├── hls-v3                      # Final, working attempt at HLS
+├── hls-v3                      # First working attempt at HLS - floating point, 8x parallel
+│   └── ...
+├── hls-v4                      # Second working attempt at HLS - 16 bit fixed point, pipelined
 │   └── ...
 ├── python                      # Python implementation
 │   ├── pathtracer.py             # The main software implementation file
